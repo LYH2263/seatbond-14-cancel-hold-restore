@@ -19,6 +19,7 @@ type Hold = {
   end_col: number;
   party_size: number;
   status: string;
+  status_label?: string;
 };
 
 export default function Layout() {
@@ -38,7 +39,7 @@ export default function Layout() {
     return () => clearInterval(t);
   }, [loc.pathname]);
 
-  const active = holds.filter((h) => h.status === "held" || h.status === "active").slice(0, 6);
+  const active = holds.filter((h) => h.status === "held").slice(0, 6);
   const recent = holds.slice(0, 8);
 
   return (
@@ -85,7 +86,7 @@ export default function Layout() {
               <div className="stub-meta">
                 R{h.row} · C{h.start_col}-{h.end_col}
               </div>
-              <div className="stub-meta">{h.party_size} 人 · {h.status}</div>
+              <div className="stub-meta">{h.party_size} 人 · {h.status_label ?? h.status}</div>
             </div>
           ))}
         </div>
@@ -94,7 +95,7 @@ export default function Layout() {
           {recent.map((h) => (
             <div key={`r-${h.id}`} className="stub-line">
               <span className="mono">{h.order_code}</span>
-              <span>{h.status}</span>
+              <span>{h.status_label ?? h.status}</span>
             </div>
           ))}
         </div>

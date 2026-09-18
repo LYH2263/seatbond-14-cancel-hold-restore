@@ -1,9 +1,10 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.services.hold_status import STATUS_HELD
 
 
 class Hall(Base):
@@ -27,8 +28,22 @@ class Showtime(Base):
 
 
 class SeatHold(Base):
+    """一行一个持座记录；终态（cancelled/released）保留行用于对账，但不再占座。"""
+
     __tablename__ = "seat_holds"
-    __table_args__ = (UniqueConstraint("showtime_id", "row", "start_col", "end_col", name="uq_hold_span"),)
+    __table_args__ = (
+        # 仅活跃持座参与唯一约束：终态行保留，且同坐标允许被新持座重新占用。
+        Index(
+            "uq_hold_span_active",
+            "showtime_id",
+            "row",
+            "start_col",
+            "end_col",
+            unique=True,
+            postgresql_where=text(f"status = '{STATUS_HELD}'"),
+            sqlite_where=text(f"status = '{STATUS_HELD}'"),
+        ),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     showtime_id: Mapped[int] = mapped_column(ForeignKey("showtimes.id"))
     order_code: Mapped[str] = mapped_column(String(40))
@@ -36,7 +51,9 @@ class SeatHold(Base):
     start_col: Mapped[int] = mapped_column(Integer)
     end_col: Mapped[int] = mapped_column(Integer)
     party_size: Mapped[int] = mapped_column(Integer)
-    status: Mapped[str] = mapped_column(String(20), default="held")
+    status: Mapped[str] = mapped_column(String(20), default=STATUS_HELD)
+    cancel_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     showtime: Mapped[Showtime] = relationship(back_populates="holds")
 

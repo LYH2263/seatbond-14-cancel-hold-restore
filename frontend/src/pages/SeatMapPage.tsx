@@ -19,7 +19,20 @@ export default function SeatMapPage() {
 
   useEffect(() => {
     if (sid === "") return;
-    api<MapOut>(`/seatmap/${sid}`).then(setMap);
+    let alive = true;
+    const load = () =>
+      api<MapOut>(`/seatmap/${sid}`)
+        .then((m) => {
+          if (alive) setMap(m);
+        })
+        .catch(() => {});
+    load();
+    // 取消/释放后热力须同步变空：轮询与持座列表保持一致视图。
+    const t = setInterval(load, 4000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
   }, [sid]);
 
   const gridStyle = useMemo(
@@ -42,7 +55,7 @@ export default function SeatMapPage() {
         </label>
         {map && (
           <span className="mono">
-            {map.hall_name} · {map.rows}×{map.cols} · 热力座图
+            {map.hall_name} · {map.rows}×{map.cols} · 热力座图（已取消/超时释放按空闲）
           </span>
         )}
       </div>

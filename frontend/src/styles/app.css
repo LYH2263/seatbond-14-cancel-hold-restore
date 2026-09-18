@@ -276,3 +276,32 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   box-shadow: inset 0 -3px 0 #a83828, 0 0 8px rgba(232, 93, 76, .35);
 }
 .seat.aisle { background: var(--aisle); opacity: .3; }
+
+/* —— 持座列表：终态区分与取消操作 —— */
+.row-terminal { opacity: .62; }
+.cell-reason { max-width: 220px; font-size: .82rem; color: var(--cinema-muted); }
+.cancel-cell { display: flex; gap: .4rem; align-items: center; }
+.badge {
+  display: inline-block;
+  padding: .12rem .5rem;
+  border-radius: 999px;
+  font-size: .75rem;
+  font-weight: 700;
+  letter-spacing: .05em;
+  white-space: nowrap;
+}
+.badge-held {
+  background: rgba(125, 222, 160, .15);
+  color: #7ddea0;
+  border: 1px solid rgba(125, 222, 160, .45);
+}
+.badge-cancelled {
+  background: rgba(154, 138, 122, .18);
+  color: var(--cinema-muted);
+  border: 1px solid #4a3a30;
+}
+.badge-released {
+  background: rgba(232, 196, 106, .14);
+  color: var(--cinema-gold);
+  border: 1px solid rgba(232, 196, 106, .4);
+}

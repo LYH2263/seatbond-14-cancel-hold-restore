@@ -2,11 +2,13 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.models import ConflictLog, Hall, SeatHold, Showtime
 from app.schemas.schemas import (
+    CancelRequest,
     ConflictOut,
     HallOut,
     HoldOut,
@@ -22,8 +24,18 @@ from app.services.bond_engine import (
     find_bond_across_rows,
     find_contiguous_block,
 )
+from app.services.hold_status import (
+    STATUS_CANCELLED,
+    STATUS_HELD,
+    STATUS_LABELS,
+    STATUS_RELEASED,
+    is_terminal,
+)
 
 api_router = APIRouter()
+
+# 列表/座位图/搜索三处共用的「空闲」口径：只有 held 占座，两种终态都按空闲。
+_FILTERABLE_STATUSES = (STATUS_HELD, STATUS_CANCELLED, STATUS_RELEASED)
 
 
 def _aisles(hall: Hall) -> list[int]:
@@ -34,6 +46,18 @@ def _aisles(hall: Hall) -> list[int]:
 
 def _hall_out(h: Hall) -> HallOut:
     return HallOut(id=h.id, name=h.name, rows=h.rows, cols=h.cols, aisle_cols=_aisles(h))
+
+
+def _active_holds(db: Session, showtime_id: int) -> list[SeatHold]:
+    """某场次当前真正占座的持座（仅 held）。座位图与锁座搜索统一走这里。"""
+    return list(
+        db.scalars(
+            select(SeatHold).where(
+                SeatHold.showtime_id == showtime_id,
+                SeatHold.status == STATUS_HELD,
+            )
+        ).all()
+    )
 
 
 @api_router.get("/health")
@@ -72,13 +96,12 @@ def seatmap(showtime_id: int, db: Session = Depends(get_db)):
     hall = db.get(Hall, st.hall_id)
     assert hall
     aisles = set(_aisles(hall))
-    holds = db.scalars(select(SeatHold).where(SeatHold.showtime_id == showtime_id)).all()
     occupied: set[tuple[int, int]] = set()
-    for h in holds:
+    # 已取消/超时释放的格子立即按空闲展示，热力随之清空。
+    for h in _active_holds(db, showtime_id):
         for c in range(h.start_col, h.end_col + 1):
             occupied.add((h.row, c))
     cells: list[SeatMapCell] = []
-    total = hall.rows * hall.cols
     for r in range(1, hall.rows + 1):
         for c in range(1, hall.cols + 1):
             occ = (r, c) in occupied
@@ -101,8 +124,15 @@ def seatmap(showtime_id: int, db: Session = Depends(get_db)):
 
 
 @api_router.get("/holds", response_model=list[HoldOut])
-def list_holds(db: Session = Depends(get_db)):
-    return db.scalars(select(SeatHold).order_by(SeatHold.id.desc())).all()
+def list_holds(status: str | None = None, db: Session = Depends(get_db)):
+    stmt = select(SeatHold).order_by(SeatHold.id.desc())
+    if status is not None:
+        if status not in _FILTERABLE_STATUSES:
+            allowed = ", ".join(_FILTERABLE_STATUSES)
+            raise HTTPException(422, f"不支持的状态筛选：{status}（可选 {allowed}）")
+        stmt = stmt.where(SeatHold.status == status)
+    rows = db.scalars(stmt).all()
+    return [HoldOut.from_model(h) for h in rows]
 
 
 @api_router.get("/conflicts", response_model=list[ConflictOut])
@@ -118,7 +148,8 @@ def create_hold(body: HoldRequest, db: Session = Depends(get_db)):
     hall = db.get(Hall, st.hall_id)
     assert hall
     aisles = set(_aisles(hall))
-    existing = db.scalars(select(SeatHold).where(SeatHold.showtime_id == body.showtime_id)).all()
+    # 终态持座不占座：取消/释放后的原坐标可被新锁座重新占到。
+    existing = _active_holds(db, body.showtime_id)
     holds = [HoldSpan(row=h.row, start_col=h.start_col, end_col=h.end_col) for h in existing]
     seats_by_row: dict[int, list[SeatCell]] = {}
     for r in range(1, hall.rows + 1):
@@ -166,6 +197,33 @@ def create_hold(body: HoldRequest, db: Session = Depends(get_db)):
         party_size=body.party_size,
     )
     db.add(hold)
+    try:
+        db.commit()
+    except IntegrityError:
+        # 并发下另一请求已占到同坐标（部分唯一索引兜底）。
+        db.rollback()
+        raise HTTPException(409, "与既有持座冲突")
+    db.refresh(hold)
+    return HoldOut.from_model(hold)
+
+
+@api_router.post("/holds/{hold_id}/cancel", response_model=HoldOut)
+def cancel_hold(hold_id: int, body: CancelRequest | None = None, db: Session = Depends(get_db)):
+    hold = db.get(SeatHold, hold_id)
+    if not hold:
+        raise HTTPException(404, "持座记录不存在")
+    reason = (body.reason.strip() if body and body.reason else "")
+
+    if hold.status == STATUS_CANCELLED:
+        raise HTTPException(409, f"持座 {hold.order_code} 已取消，不能重复取消")
+    if hold.status == STATUS_RELEASED:
+        raise HTTPException(409, f"持座 {hold.order_code} 已超时释放，不能取消")
+    if is_terminal(hold.status):
+        raise HTTPException(409, f"持座 {hold.order_code} 已处于终态（{STATUS_LABELS.get(hold.status, hold.status)}），不能取消")
+
+    hold.status = STATUS_CANCELLED
+    hold.cancel_reason = reason or None
+    hold.cancelled_at = datetime.utcnow()
     db.commit()
     db.refresh(hold)
-    return hold
+    return HoldOut.from_model(hold)
