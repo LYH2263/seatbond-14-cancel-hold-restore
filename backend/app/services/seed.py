@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.models import ConflictLog, Hall, SeatHold, Showtime
+from app.models.models import HOLD_STATUS_RELEASED, ConflictLog, Hall, SeatHold, Showtime
 
 
 def seed_if_empty(db: Session) -> None:
@@ -24,6 +24,16 @@ def seed_if_empty(db: Session) -> None:
             SeatHold(showtime_id=s1.id, order_code="SB-1001", row=3, start_col=2, end_col=4, party_size=3),
             SeatHold(showtime_id=s1.id, order_code="SB-1002", row=5, start_col=7, end_col=9, party_size=3),
             SeatHold(showtime_id=s3.id, order_code="SB-1003", row=2, start_col=1, end_col=2, party_size=2),
+            # 超时释放的终态行：保留对账记录，座位按空闲参与搜索
+            SeatHold(
+                showtime_id=s2.id,
+                order_code="SB-1004",
+                row=4,
+                start_col=6,
+                end_col=7,
+                party_size=2,
+                status=HOLD_STATUS_RELEASED,
+            ),
         ]
     )
     db.add(ConflictLog(showtime_id=s1.id, party_size=4, reason="与既有持座重叠：第3排 2-4"))

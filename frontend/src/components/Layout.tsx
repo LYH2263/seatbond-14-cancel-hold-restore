@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { api } from "../api/client";
+import { holdStatusLabel } from "../status";
 
 const filmLinks = [
   ["/seatmap", "座图", "01"],
@@ -38,7 +39,8 @@ export default function Layout() {
     return () => clearInterval(t);
   }, [loc.pathname]);
 
-  const active = holds.filter((h) => h.status === "held" || h.status === "active").slice(0, 6);
+  // 与后端一致：仅 held 视为活跃持座；已取消/已释放等终态不占座
+  const active = holds.filter((h) => h.status === "held").slice(0, 6);
   const recent = holds.slice(0, 8);
 
   return (
@@ -85,7 +87,7 @@ export default function Layout() {
               <div className="stub-meta">
                 R{h.row} · C{h.start_col}-{h.end_col}
               </div>
-              <div className="stub-meta">{h.party_size} 人 · {h.status}</div>
+              <div className="stub-meta">{h.party_size} 人 · {holdStatusLabel(h.status)}</div>
             </div>
           ))}
         </div>
@@ -94,7 +96,7 @@ export default function Layout() {
           {recent.map((h) => (
             <div key={`r-${h.id}`} className="stub-line">
               <span className="mono">{h.order_code}</span>
-              <span>{h.status}</span>
+              <span>{holdStatusLabel(h.status)}</span>
             </div>
           ))}
         </div>

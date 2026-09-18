@@ -29,6 +29,9 @@ class HoldOut(BaseModel):
     end_col: int
     party_size: int
     status: str
+    cancel_reason: str | None = None
+    cancelled_at: datetime | None = None
+    created_at: datetime
     model_config = {"from_attributes": True}
 
 
@@ -36,6 +39,10 @@ class HoldRequest(BaseModel):
     showtime_id: int
     party_size: int = Field(ge=1, le=12)
     preferred_row: int | None = None
+
+
+class CancelHoldRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=200)
 
 
 class ConflictOut(BaseModel):
